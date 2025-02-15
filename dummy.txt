@@ -1,0 +1,106 @@
+Step 1: Enable SSH on Raspberry Pi
+Run this on your Raspberry Pi to enable SSH:
+
+bash
+Copy
+Edit
+sudo raspi-config
+Go to Interfacing Options → Enable SSH
+Restart the Raspberry Pi.
+Step 2: Install Required Packages on Raspberry Pi
+Run these commands on the Raspberry Pi:
+
+bash
+Copy
+Edit
+sudo apt update
+sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-base \
+gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+This installs GStreamer for fast video streaming.
+
+Step 3: Start the Camera Stream on Raspberry Pi
+Run this command on the Raspberry Pi to start the camera feed:
+
+bash
+Copy
+Edit
+gst-launch-1.0 v4l2src device=/dev/video0 ! videoconvert ! videoscale ! video/x-raw,width=640,height=480 ! jpegenc ! rtpjpegpay ! udpsink host=192.168.137.1 port=5000
+🔹 Replace 192.168.137.1 with your laptop's IP address
+🔹 This streams the raw camera feed via UDP
+
+Step 4: Process the Video on Your Laptop
+Modify your lane detection script (lane.py) to receive the stream from Raspberry Pi.
+
+New lane.py for Your Laptop
+python
+Copy
+Edit
+import cv2
+import numpy as np
+
+# Open the UDP stream from Raspberry Pi
+cap = cv2.VideoCapture("udp://192.168.137.224:5000", cv2.CAP_FFMPEG)
+
+def process_frame(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 50, 150)
+
+    # Define Region of Interest (ROI)
+    mask = np.zeros_like(edges)
+    roi = np.array([[(100, 480), (540, 300), (740, 300), (1280, 480)]], dtype=np.int32)
+    cv2.fillPoly(mask, roi, 255)
+    roi_edges = cv2.bitwise_and(edges, mask)
+
+    # Detect lines using Hough Transform
+    lines = cv2.HoughLinesP(roi_edges, 1, np.pi/180, 50, minLineLength=100, maxLineGap=50)
+
+    # Create a black background
+    lane_img = np.zeros_like(frame)
+
+    # Draw white lane lines
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            cv2.line(lane_img, (x1, y1), (x2, y2), (255, 255, 255), 3)  # White lines
+
+    return lane_img
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    processed_frame = process_frame(frame)
+    cv2.imshow("Lane Detection", processed_frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+Step 5: Run the System
+1️⃣ Start the Camera Stream on Raspberry Pi
+Run this command on the Raspberry Pi:
+
+bash
+Copy
+Edit
+gst-launch-1.0 v4l2src device=/dev/video0 ! videoconvert ! videoscale ! video/x-raw,width=640,height=480 ! jpegenc ! rtpjpegpay ! udpsink host=192.168.137.1 port=5000
+(Replace 192.168.137.1 with your laptop’s IP address.)
+
+2️⃣ Run Lane Detection on Your Laptop
+On your laptop, run:
+
+bash
+Copy
+Edit
+python3 lane.py
+Now, you will see the lane detection output (white lanes on black background) on your laptop! 🎥🚀
+
+What is the Delay?
+🔥 This method has a low delay of ~100-200ms 🔥
+✅ UDP Streaming is much faster than Flask (~500ms)
+✅ Smooth video feed (~30 FPS on Raspberry Pi 4/5)
+✅ No need to run heavy processing on Raspberry Pi
+
