@@ -1,5 +1,8 @@
 import cv2
 import numpy as np
+from flask import Flask, Response
+
+app = Flask(__name__)
 
 def process_frame(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -15,26 +18,37 @@ def process_frame(frame):
     # Detect lines using Hough Transform
     lines = cv2.HoughLinesP(roi_edges, 1, np.pi/180, 50, minLineLength=100, maxLineGap=50)
 
-    # Draw lines on the image
-    line_img = frame.copy()
+    # Create a black background
+    lane_img = np.zeros_like(frame)
+
+    # Draw white lane lines
     if lines is not None:
         for line in lines:
             x1, y1, x2, y2 = line[0]
-            cv2.line(line_img, (x1, y1), (x2, y2), (0, 255, 0), 3)
+            cv2.line(lane_img, (x1, y1), (x2, y2), (255, 255, 255), 3)  # White lines
 
-    return line_img
+    return lane_img
 
-cap = cv2.VideoCapture(0)  # Replace with video file if needed
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        break
+def generate_frames():
+    cap = cv2.VideoCapture(0)  # Change this if needed
 
-    processed_frame = process_frame(frame)
-    cv2.imshow("Lane Detection", processed_frame)
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        processed_frame = process_frame(frame)
+        _, buffer = cv2.imencode('.jpg', processed_frame)
+        frame_bytes = buffer.tobytes()
 
-cap.release()
-cv2.destroyAllWindows()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+    cap.release()
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)
